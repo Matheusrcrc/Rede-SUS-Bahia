@@ -3,11 +3,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from streamlit_folium import folium_static
+import folium
 import os
 
 # Import custom modules
 from data_utils import load_and_process_data, calculate_metrics
-from map_utils import create_base_map, add_health_unit_markers, add_heatmap
 
 # Page config
 st.set_page_config(
@@ -33,13 +33,7 @@ st.markdown('''
 # Load data
 @st.cache_data
 def load_data():
-    try:
-        return load_and_process_data()
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {str(e)}")
-        st.error(f"Diretório atual: {os.getcwd()}")
-        st.error(f"Arquivos disponíveis: {os.listdir()}")
-        return pd.DataFrame()  # Return empty DataFrame
+    return load_and_process_data()
 
 df = load_data()
 
@@ -50,7 +44,7 @@ if df.empty:
 # Sidebar filters
 st.sidebar.header('Filtros')
 selected_year = st.sidebar.selectbox('Ano', sorted(df['ano'].unique()))
-selected_region = st.sidebar.multiselect('Região', df['regiao'].unique())
+selected_region = st.sidebar.multiselect('Região', sorted(df['regiao'].unique()))
 
 # Filter data
 if selected_region:
@@ -82,7 +76,7 @@ if not df_filtered.empty:
 
     with col1:
         fig_samu = px.bar(
-            df_filtered,
+            df_filtered.sort_values('cobertura_samu', ascending=False),
             x='regiao',
             y='cobertura_samu',
             title='Cobertura SAMU por Região',
@@ -92,7 +86,7 @@ if not df_filtered.empty:
 
     with col2:
         fig_ab = px.bar(
-            df_filtered,
+            df_filtered.sort_values('cobertura_atencao_basica', ascending=False),
             x='regiao',
             y='cobertura_atencao_basica',
             title='Cobertura da Atenção Básica por Região',
@@ -104,11 +98,29 @@ if not df_filtered.empty:
     st.subheader('Distribuição das Unidades de Saúde')
     map_type = st.radio('Tipo de Visualização', ['Marcadores', 'Mapa de Calor'])
 
-    m = create_base_map()
+    # Create base map
+    m = folium.Map(
+        location=[-12.5, -41.7],
+        zoom_start=7,
+        tiles='CartoDB positron'
+    )
+
     if map_type == 'Marcadores':
-        m = add_health_unit_markers(m, df_filtered)
+        for _, row in df_filtered.iterrows():
+            folium.CircleMarker(
+                location=[row['lat'], row['lon']],
+                radius=5,
+                popup=f"Região: {row['regiao']}<br>"
+                      f"USB: {row['n_usb']}<br>"
+                      f"USA: {row['n_usa']}<br>"
+                      f"UPA: {row['n_upa']}<br>"
+                      f"PA: {row['n_pa']}",
+                color='red',
+                fill=True
+            ).add_to(m)
     else:
-        m = add_heatmap(m, df_filtered)
+        heat_data = [[row['lat'], row['lon']] for _, row in df_filtered.iterrows()]
+        folium.plugins.HeatMap(heat_data).add_to(m)
 
     folium_static(m, width=1200)
 
